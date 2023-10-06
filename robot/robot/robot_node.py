@@ -4,74 +4,37 @@ from rclpy.node import Node
 import math
 from scipy.spatial.transform import Rotation
 
-from std_msgs.msg import String
-from geometry_msgs.msg import Pose, Point, Quaternion
+from geometry_msgs.msg import PoseStamped, Point, Quaternion, Twist
 
 
 class Robot(Node):
 
-    R = 1.0
-    L = 3.0
+    v = 0.0
+    w = 0.0
     x = 0.0
     y = 0.0
     theta = 0.0
-    wr = 0.0
-    wl = 0.0
+    time = 0.0
+    lasttime = 0.0
 
     def __init__(self):
         super().__init__('robot')
+        self.lasttime = self.get_clock().now()
         self.subscription = self.create_subscription(
-            String,
-            'inputs',
+            Twist,
+            'cmd_vel',
             self.listener_callback,
             10)
         self.subscription
 
-        self.publisher_ = self.create_publisher(Pose, 'display', 10)
-        timer_period = 0.5
+        self.publisher_ = self.create_publisher(PoseStamped, 'display', 10)
+        timer_period = 0.01
         self.timer = self.create_timer(timer_period, self.timer_callback)
         self.i = 0
 
     def listener_callback(self, msg):
-        if (msg.data == "\'w\'"):
-            self.wr = 1.0
-            self.wl = 1.0
-        elif (msg.data == "\'s\'"):
-            self.wr = -1.0
-            self.wl = -1.0
-        elif (msg.data == "\'a\'"):
-            self.wr = 1.0
-            self.wl = -1.0
-        elif (msg.data == "\'d\'"):
-            self.wr = -1.0
-            self.wl = 1.0
-
-        A = [[1.0, 0.0, 0.0],
-             [0.0, 1.0, 0.0],
-             [0.0, 0.0, 1.0]]
-        
-        xt = [[self.x],
-              [self.y],
-              [self.theta]]
-        
-        B = [[math.cos(self.theta), 0,0],
-             [math.sin(self.theta), 0,0],
-             [0.0, 1.0]]
-        
-        v = (self.wr + self.wl) * self.R / 2
-        w = (self.wr - self.wl) * self.R / 2
-
-        ut = [[v],
-              [w]]
-        
-        Ax = self.matmul(A, xt)
-        Bu = self.matmul(B, ut)
-
-        result = self.matadd(Ax, Bu)
-
-        self.x = result[0][0]
-        self.y = result[1][0]
-        self.theta = result[2][0]
+        self.v = msg.linear.x
+        self.w = msg.angular.z
 
 
     def matadd(self, A, B):
@@ -83,7 +46,38 @@ class Robot(Node):
 
 
     def timer_callback(self):
-        msg = Pose()
+        self.time = self.get_clock().now()
+        dt = self.time - self.lasttime
+        dt_nano = dt.nanoseconds / 1e9
+
+        A = [[1.0, 0.0, 0.0],
+             [0.0, 1.0, 0.0],
+             [0.0, 0.0, 1.0]]
+        
+        xt = [[self.x],
+              [self.y],
+              [self.theta]]
+        
+        B = [[math.cos(self.theta) * dt_nano, 0,0],
+             [math.sin(self.theta) * dt_nano, 0,0],
+             [0.0, dt_nano]]
+
+        ut = [[self.v],
+              [self.w]]
+        
+        Ax = self.matmul(A, xt)
+        Bu = self.matmul(B, ut)
+
+        self.lasttime = self.time
+
+        result = self.matadd(Ax, Bu)
+
+        self.x = result[0][0]
+        self.y = result[1][0]
+        self.theta = result[2][0]
+
+
+        msg = PoseStamped()
         msg_point = Point()
         msg_quater = Quaternion()
 
@@ -91,7 +85,7 @@ class Robot(Node):
         msg_point.y = self.y
         msg_point.z = 0.0
 
-        rot = Rotation.from_euler('xyz', [0, 0, self.theta], degrees=True)
+        rot = Rotation.from_euler('xyz', [0, 0, self.theta], degrees=False)
         rot_quat = rot.as_quat()
 
         msg_quater.x = rot_quat[0]
@@ -99,10 +93,15 @@ class Robot(Node):
         msg_quater.z = rot_quat[2]
         msg_quater.w = rot_quat[3]
 
-        msg.position = msg_point
-        msg.orientation = msg_quater
+        
+        msg.header.frame_id = "map"
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.position = msg_point
+        msg.pose.orientation = msg_quater
 
-        self.get_logger().info(f"Result: {msg}")
+
+        self.get_logger().info(f"Result: {msg}, theta: {self.theta}")
+
 
         self.publisher_.publish(msg)
 
