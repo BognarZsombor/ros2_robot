@@ -58,8 +58,8 @@ class Robot(Node):
               [self.y],
               [self.theta]]
         
-        B = [[math.cos(self.theta) * dt_nano, 0,0],
-             [math.sin(self.theta) * dt_nano, 0,0],
+        B = [[math.cos(self.theta) * dt_nano, 0.0],
+             [math.sin(self.theta) * dt_nano, 0.0],
              [0.0, dt_nano]]
 
         ut = [[self.v],
